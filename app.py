@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
+from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -8,6 +9,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://wxrxiuuzoamgvt:4a638998daf
 
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
+bcrypt = Bcrypt(app)
 CORS(app)
 
 class User(db.Model):
@@ -62,11 +64,32 @@ def add_user():
     password = post_data.get("password")
     money = post_data.get("money:, 0")
 
-    new_record = User(username, password, money)
+    pw_hash = bcrypt.generate_password_hash(password).decode("utf-8")
+
+    new_record = User(username, pw_hash, money)
     db.session.add(new_record)
     db.session.commit()
 
     return jsonify(user_schema.dump(new_record))
+
+@app.route("/user/verification", methods=["POST"])
+def verification():
+    if request.content_type != "application/json":
+        return jsonify("Error: Data must be sent as json")
+
+    post_data = request.get_json()
+    username = post_data.get("username")
+    password = post_data.get("password")
+
+    user = db.session.query(User).filter(User.username == username).first()
+
+    if user is None:
+        return jsonify("User NOT Verified")
+
+    if not bcrypt.check_password_hash(user.password, password):
+        return jsonify("User NOT Verified")
+
+    return jsonify("User Verified")
 
 @app.route("/user/get", methods=["GET"])
 def get_all_users():
@@ -78,6 +101,20 @@ def get_user(username):
     user = db.session.query(User).filter(User.username == username).first()
     return jsonify(user_schema.dump(user))
 
+@app.route("/user/update/<id>", methods=["PUT"])
+def update_user(id):
+    if request.content_type != "application/json":
+        return jsonify("Error: Data must be sent as json")
+
+    put_data = request.get_json()
+    money = put_data.get("money")
+
+    user = db.session.query(User).filter(User.id == id).first()
+
+    user.money = money
+    db.session.commit()
+
+    return jsonify(user_schema.dump(user))
 
 
 
@@ -106,6 +143,16 @@ def get_all_tokens():
 def get_token(id):
     token = db.session.query(Token).filter(Token.id == id).first()
     return jsonify(token_schema.dump(token))
+
+@app.route("/token/delete/<user_id>", methods=["DELETE"])
+def delete_tokens(user_id):
+    tokens = db.session.query(Token).filter(Token.user_id == user_id).all()
+
+    for token in tokens:
+        db.session.delete(token)
+        db.session.commit()
+    user = db.session.query(User).filter(User.id == user_id).first()
+    return jsonify(user_schema.dump(user))
 
 
 
